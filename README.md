@@ -2,7 +2,7 @@ Hello!
 
 I'm Amin, a Information Technology student based in Viet Nam.
 
-I have a solid understanding of software fundamentals and focus more on analytical thinking, system understanding, and problem analysis than on fast coding.
+I have a solid understanding of software fundamentals and focus more on analytical thinking, system understanding, and problem analysis than on coding.
 
 I use AI as a supporting tool to help translate ideas into code and explore solutions more efficiently.
 
