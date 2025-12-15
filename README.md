@@ -1,6 +1,6 @@
 Hello!
 
-I'm Amin, a computer science student based in Viet Nam, currently preparing for QC roles.
+I'm Amin, a Information Technology student based in Viet Nam.
 
 I have a solid understanding of software fundamentals and focus more on analytical thinking, system understanding, and problem analysis than on fast coding.
 
