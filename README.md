@@ -14,6 +14,6 @@ I'm not proficient in every tool or programming language, but I'm always willing
 
 I have an open and adaptable mindset and feel comfortable working across different environments and approaches.
 
-I’m especially interested in forward-looking ideas with long-term technological potential.
+I have a strong passion for science in general and technology in particular, and I’m especially interested in forward-looking ideas with long-term technological potential.
 
 I see GitHub as a place to document my learning process, experiments, and growth.
