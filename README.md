@@ -1,16 +1,19 @@
-## Hi there 👋
+Hello!
 
-<!--
-**Amin7410/Amin7410** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+I'm Amin, a computer science student based in Viet Nam, currently preparing for QC roles.
 
-Here are some ideas to get you started:
+I have a solid understanding of software fundamentals and focus more on analytical thinking, system understanding, and problem analysis than on fast coding.
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
+I use AI as a supporting tool to help translate ideas into code and explore solutions more efficiently.
+
+My interests lie in turning ideas into practical products, understanding system behavior, and improving software through testing and validation.
+
+I don't aim to be a hardcore developer, but I enjoy understanding how things work and applying technology in meaningful ways.
+
+I'm not proficient in every tool or programming language, but I'm always willing to learn and flexibly integrate new technologies to solve problems.
+
+I have an open and adaptable mindset and feel comfortable working across different environments and approaches.
+
+I’m especially interested in forward-looking ideas with long-term technological potential.
+
+I see GitHub as a place to document my learning process, experiments, and growth.
