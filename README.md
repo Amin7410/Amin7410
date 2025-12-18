@@ -12,7 +12,7 @@ I don't aim to be a hardcore developer, but I enjoy understanding how things wor
 
 I'm not proficient in every tool or programming language, but I'm always willing to learn and flexibly integrate new technologies to solve problems.
 
-I have an open and adaptable mindset and feel comfortable working across different environments and approaches.
+I have an open, adaptable mindset and feel comfortable working across different environments, approaches.
 
 I have a strong passion for science in general and technology in particular, and I’m especially interested in forward-looking ideas with long-term technological potential.
 
