@@ -1,5 +1,5 @@
 Hello!
-I'm Amin, an IT student based in Viet Nam.
+I'm Amin.
 
 I'm interested in system thinking, problem analysis, and building practical solutions.
 
