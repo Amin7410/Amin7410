@@ -9,7 +9,6 @@ GitHub is where I document my learning and experiments.
 
 Feel free to contact me anytime! I'm open to ideas and collaboration.
 
-## Languages
 
 <!-- LANGUAGES:START -->
 
