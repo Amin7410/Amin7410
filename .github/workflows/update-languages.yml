@@ -105,19 +105,7 @@ jobs:
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "X-GitHub-Api-Version: 2026-03-10" \
               "https://api.github.com/repos/${repo}/languages")
-
-            # Convert:
-            #
-            # {
-            #   "Python": 12345,
-            #   "JavaScript": 6789
-            # }
-            #
-            # into:
-            #
-            # Python    12345
-            # JavaScript 6789
-            #
+              
             echo "$language_response" |
               jq -r 'to_entries[] | [.key, .value] | @tsv' \
               >> "$LANGUAGES_FILE"
@@ -145,12 +133,39 @@ jobs:
           {
             echo "<!-- LANGUAGES:START -->"
             echo ""
-            echo "| Language | Usage |"
-            echo "|---|---:|"
+            echo "| Language | Usage | Language | Usage | Language | Usage | Language | Usage |"
+            echo "|---|---:|---|---:|---|---:|---|---:|"
 
-            while IFS=$'\t' read -r language bytes percentage; do
-              printf '| `%s` | %.2f%% |\n' "$language" "$percentage"
-            done < "$TOTAL_FILE"
+            # Generate 4 language/usage pairs per row
+            awk -F '\t' '
+            {
+              language[NR] = $1
+              percentage[NR] = $3
+            }
+            END {
+              total = NR
+
+              for (i = 1; i <= total; i += 4) {
+                printf "| "
+
+                for (j = 0; j < 4; j++) {
+                  index = i + j
+
+                  if (index <= total) {
+                    printf "`%s` | %.2f%% |", language[index], percentage[index]
+                  } else {
+                    printf " | |"
+                  }
+
+                  if (j < 3) {
+                    printf " "
+                  }
+                }
+
+                printf "\n"
+              }
+            }
+            ' "$TOTAL_FILE"
 
             echo ""
             echo "_Automatically updated by GitHub Actions._"
@@ -158,9 +173,6 @@ jobs:
             echo "<!-- LANGUAGES:END -->"
           } > "$GENERATED_FILE"
 
-          # --------------------------------------------------------
-          # Replace existing language section in README
-          # --------------------------------------------------------
           python3 - "$GENERATED_FILE" <<'PY'
           import pathlib
           import sys
@@ -191,7 +203,7 @@ jobs:
               )
           else:
               section = (
-                  "\n\n## 💻 Languages\n\n"
+                  "\n\n## Languages\n\n"
                   + generated_text
                   + "\n"
               )
@@ -202,10 +214,7 @@ jobs:
 
           print("README.md updated successfully.")
           PY
-
-          # --------------------------------------------------------
-          # Print final result to Actions log
-          # --------------------------------------------------------
+          
           echo ""
           echo "========================================"
           echo " Final language statistics"
