@@ -131,11 +131,11 @@ jobs:
           GENERATED_FILE="$(mktemp)"
 
           {
-            echo "<!-- LANGUAGES:START -->"
-            echo ""
-            echo "| Language | Usage | Language | Usage | Language | Usage | Language | Usage |"
-            echo "|---|---:|---|---:|---|---:|---|---:|"
-
+          echo "<!-- LANGUAGES:START -->"
+          echo ""
+          echo "| Language | Usage | Language | Usage | Language | Usage | Language | Usage |"
+          echo "|---|---:|---|---:|---|---:|---|---:|"
+        
             # Generate 4 language/usage pairs per row
             awk -F '\t' '
             {
@@ -144,29 +144,29 @@ jobs:
             }
             END {
               total = NR
-
+          
               for (i = 1; i <= total; i += 4) {
                 printf "| "
-
+          
                 for (j = 0; j < 4; j++) {
-                  index = i + j
-
-                  if (index <= total) {
-                    printf "`%s` | %.2f%% |", language[index], percentage[index]
+                  idx = i + j
+          
+                  if (idx <= total) {
+                    printf "`%s` | %.2f%% |", language[idx], percentage[idx]
                   } else {
                     printf " | |"
                   }
-
+          
                   if (j < 3) {
                     printf " "
                   }
                 }
-
+          
                 printf "\n"
               }
             }
             ' "$TOTAL_FILE"
-
+          
             echo ""
             echo "_Automatically updated by GitHub Actions._"
             echo ""
