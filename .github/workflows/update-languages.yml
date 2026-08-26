@@ -1,0 +1,232 @@
+name: Update Language Statistics
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "0 0 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  update-languages:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Calculate language statistics
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "========================================"
+          echo " GitHub Language Statistics"
+          echo "========================================"
+
+          REPOS_FILE="$(mktemp)"
+          LANGUAGES_FILE="$(mktemp)"
+          TOTAL_FILE="$(mktemp)"
+
+          # Start with an empty language file
+          : > "$LANGUAGES_FILE"
+
+          echo "Fetching repositories..."
+
+          page=1
+
+          while true; do
+            response=$(curl -fsSL \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "https://api.github.com/user/repos?per_page=100&page=${page}&affiliation=owner,collaborator,organization_member&visibility=all")
+
+            count=$(echo "$response" | jq 'length')
+
+            if [ "$count" -eq 0 ]; then
+              break
+            fi
+
+            echo "$response" |
+              jq -r '.[] | [.full_name, .fork, .archived, .disabled] | @tsv' \
+              >> "$REPOS_FILE"
+
+            if [ "$count" -lt 100 ]; then
+              break
+            fi
+
+            page=$((page + 1))
+          done
+
+          echo ""
+          echo "Repositories found:"
+          echo "----------------------------------------"
+
+          repo_count=$(wc -l < "$REPOS_FILE" | tr -d ' ')
+
+          cat "$REPOS_FILE" |
+            while IFS=$'\t' read -r repo fork archived disabled; do
+              echo " - $repo"
+            done
+
+          echo "----------------------------------------"
+          echo "Total repositories: $repo_count"
+          echo ""
+
+          while IFS=$'\t' read -r repo fork archived disabled; do
+
+            # Skip forks
+            if [ "$fork" = "true" ]; then
+              echo "Skipping fork: $repo"
+              continue
+            fi
+
+            # Skip archived repositories
+            if [ "$archived" = "true" ]; then
+              echo "Skipping archived repository: $repo"
+              continue
+            fi
+
+            # Skip disabled repositories
+            if [ "$disabled" = "true" ]; then
+              echo "Skipping disabled repository: $repo"
+              continue
+            fi
+
+            echo "Scanning: $repo"
+
+            language_response=$(curl -fsSL \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "https://api.github.com/repos/${repo}/languages")
+
+            # Convert:
+            #
+            # {
+            #   "Python": 12345,
+            #   "JavaScript": 6789
+            # }
+            #
+            # into:
+            #
+            # Python    12345
+            # JavaScript 6789
+            #
+            echo "$language_response" |
+              jq -r 'to_entries[] | [.key, .value] | @tsv' \
+              >> "$LANGUAGES_FILE"
+
+          done < "$REPOS_FILE"
+
+          echo ""
+          echo "Aggregating language statistics..."
+
+          awk -F '\t' '
+          {
+            language[$1] += $2
+            total += $2
+          }
+          END {
+            for (l in language) {
+              printf "%s\t%.0f\t%.10f\n", l, language[l], language[l] / total * 100
+            }
+          }
+          ' "$LANGUAGES_FILE" |
+            sort -t $'\t' -k2,2nr > "$TOTAL_FILE"
+
+          GENERATED_FILE="$(mktemp)"
+
+          {
+            echo "<!-- LANGUAGES:START -->"
+            echo ""
+            echo "| Language | Usage |"
+            echo "|---|---:|"
+
+            while IFS=$'\t' read -r language bytes percentage; do
+              printf '| `%s` | %.2f%% |\n' "$language" "$percentage"
+            done < "$TOTAL_FILE"
+
+            echo ""
+            echo "_Automatically updated by GitHub Actions._"
+            echo ""
+            echo "<!-- LANGUAGES:END -->"
+          } > "$GENERATED_FILE"
+
+          # --------------------------------------------------------
+          # Replace existing language section in README
+          # --------------------------------------------------------
+          python3 - "$GENERATED_FILE" <<'PY'
+          import pathlib
+          import sys
+
+          readme = pathlib.Path("README.md")
+          generated = pathlib.Path(sys.argv[1])
+
+          start_marker = "<!-- LANGUAGES:START -->"
+          end_marker = "<!-- LANGUAGES:END -->"
+
+          generated_text = generated.read_text()
+
+          if readme.exists():
+              content = readme.read_text()
+          else:
+              content = ""
+
+          start = content.find(start_marker)
+          end = content.find(end_marker)
+
+          if start != -1 and end != -1 and end >= start:
+              end += len(end_marker)
+
+              new_content = (
+                  content[:start]
+                  + generated_text
+                  + content[end:]
+              )
+          else:
+              section = (
+                  "\n\n## 💻 Languages\n\n"
+                  + generated_text
+                  + "\n"
+              )
+
+              new_content = content.rstrip() + section
+
+          readme.write_text(new_content)
+
+          print("README.md updated successfully.")
+          PY
+
+          # --------------------------------------------------------
+          # Print final result to Actions log
+          # --------------------------------------------------------
+          echo ""
+          echo "========================================"
+          echo " Final language statistics"
+          echo "========================================"
+
+          cat "$TOTAL_FILE"
+
+          echo ""
+          echo "Language statistics updated successfully."
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add README.md
+
+          if git diff --cached --quiet; then
+            echo "README.md is already up to date."
+            exit 0
+          fi
+
+          git commit -m "chore: update language statistics"
+          git push
