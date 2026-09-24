@@ -1,241 +1,448 @@
+```yaml
+# Tên của GitHub Actions workflow
 name: Update Language Statistics
 
+# ============================================================
+# CẤU HÌNH TRIGGER
+# ============================================================
 on:
+  # Cho phép chạy workflow thủ công từ tab Actions trên GitHub
   workflow_dispatch:
 
+  # Tự động chạy workflow mỗi ngày lúc 00:00 UTC
+  # Tương đương 07:00 sáng theo giờ Việt Nam (UTC+7)
   schedule:
     - cron: "0 0 * * *"
 
+# ============================================================
+# PERMISSIONS
+# ============================================================
+# Cho phép workflow có quyền ghi (write) vào nội dung repository.
+# Cần thiết vì workflow sẽ cập nhật README.md rồi commit + push.
 permissions:
   contents: write
 
+# ============================================================
+# JOBS
+# ============================================================
 jobs:
+  # Job chính dùng để tính toán và cập nhật thống kê ngôn ngữ
   update-languages:
+
+    # Chạy trên máy ảo Ubuntu mới nhất của GitHub
     runs-on: ubuntu-latest
 
     steps:
+
+      # ========================================================
+      # 1. CHECKOUT REPOSITORY
+      # ========================================================
+      # Tải source code của repository hiện tại xuống runner.
+      # Sau bước này workflow có thể đọc/ghi README.md,
+      # chạy git command, commit và push thay đổi.
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ========================================================
+      # 2. CALCULATE LANGUAGE STATISTICS
+      # ========================================================
       - name: Calculate language statistics
+
+        # Đưa GitHub Token vào biến môi trường GH_TOKEN.
+        #
+        # Token này được sử dụng để gọi GitHub REST API,
+        # đặc biệt là lấy danh sách repository và statistics
+        # của từng repository.
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+        # Sử dụng Bash để thực thi script bên dưới.
         shell: bash
+
         run: |
+          # ----------------------------------------------------
+          # Bash safety options
+          # ----------------------------------------------------
+          #
+          # -e: dừng script nếu command nào đó trả về lỗi
+          # -u: lỗi nếu sử dụng biến chưa được khai báo
+          # -o pipefail: pipeline bị xem là lỗi nếu bất kỳ
+          #              command nào trong pipeline bị lỗi
+          #
+          # Giúp workflow fail sớm thay vì tiếp tục với dữ liệu lỗi.
           set -euo pipefail
 
+
+          # ----------------------------------------------------
+          # In tiêu đề của quá trình xử lý
+          # ----------------------------------------------------
           echo "========================================"
           echo " GitHub Language Statistics"
           echo "========================================"
 
+
+          # ----------------------------------------------------
+          # Tạo các temporary file
+          # ----------------------------------------------------
+          #
+          # mktemp tạo file tạm thời với tên duy nhất.
+          #
+          # REPOS_FILE:
+          #   Lưu danh sách repository cần xử lý.
+          #
+          # LANGUAGES_FILE:
+          #   Lưu language statistics lấy được từ từng repository.
+          #
+          # TOTAL_FILE:
+          #   Lưu kết quả statistics sau khi cộng và tính percentage.
           REPOS_FILE="$(mktemp)"
           LANGUAGES_FILE="$(mktemp)"
           TOTAL_FILE="$(mktemp)"
 
-          # Start with an empty language file
+
+          # ----------------------------------------------------
+          # Khởi tạo file language statistics rỗng
+          # ----------------------------------------------------
+          #
+          # ":" là một shell builtin không làm gì.
+          #
+          # ": > file" có tác dụng tạo file nếu chưa tồn tại
+          # hoặc xóa toàn bộ nội dung file nếu đã tồn tại.
           : > "$LANGUAGES_FILE"
 
+
+          # ----------------------------------------------------
+          # Bắt đầu lấy danh sách repository
+          # ----------------------------------------------------
           echo "Fetching repositories..."
 
+
+          # GitHub API trả dữ liệu theo từng page.
+          # Bắt đầu từ page đầu tiên.
           page=1
 
+
+          # ----------------------------------------------------
+          # Lấy toàn bộ repository bằng GitHub REST API
+          # ----------------------------------------------------
+          #
+          # API:
+          #   /user/repos
+          #
+          # per_page=100:
+          #   Lấy tối đa 100 repository mỗi request.
+          #
+          # affiliation:
+          #   Lấy repository mà user có vai trò:
+          #   - owner
+          #   - collaborator
+          #   - organization member
+          #
+          # visibility=all:
+          #   Bao gồm cả public và private repository.
+          #
+          # Vòng lặp tiếp tục cho đến khi không còn repository.
           while true; do
+
+            # Gọi GitHub API để lấy một page repository.
             response=$(curl -fsSL \
               -H "Accept: application/vnd.github+json" \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "X-GitHub-Api-Version: 2026-03-10" \
               "https://api.github.com/user/repos?per_page=100&page=${page}&affiliation=owner,collaborator,organization_member&visibility=all")
 
+
+            # Đếm số repository được trả về trong response.
+            #
+            # jq 'length' trả về số phần tử của JSON array.
             count=$(echo "$response" | jq 'length')
 
+
+            # Nếu API trả về 0 repository,
+            # nghĩa là đã lấy hết tất cả các page.
             if [ "$count" -eq 0 ]; then
               break
             fi
 
+
+            # --------------------------------------------------
+            # Trích xuất thông tin cần thiết của mỗi repository
+            # --------------------------------------------------
+            #
+            # Lấy:
+            #   .full_name -> owner/repository
+            #   .fork     -> repository có phải fork không
+            #   .archived -> repository có bị archive không
+            #   .disabled -> repository có bị disable không
+            #
+            # @tsv chuyển JSON thành dạng:
+            #
+            # owner/repo    false    false    false
+            #
+            # Sau đó append vào REPOS_FILE.
             echo "$response" |
               jq -r '.[] | [.full_name, .fork, .archived, .disabled] | @tsv' \
               >> "$REPOS_FILE"
 
+
+            # --------------------------------------------------
+            # Kiểm tra có phải page cuối cùng không
+            # --------------------------------------------------
+            #
+            # Nếu số lượng repository trả về < 100,
+            # nghĩa là page hiện tại là page cuối.
             if [ "$count" -lt 100 ]; then
               break
             fi
 
+
+            # Nếu chưa hết repository,
+            # chuyển sang page tiếp theo.
             page=$((page + 1))
           done
+
+
+          # ====================================================
+          # HIỂN THỊ DANH SÁCH REPOSITORY
+          # ====================================================
 
           echo ""
           echo "Repositories found:"
           echo "----------------------------------------"
 
+
+          # Đếm tổng số dòng trong REPOS_FILE.
+          #
+          # Mỗi dòng tương ứng với một repository.
           repo_count=$(wc -l < "$REPOS_FILE" | tr -d ' ')
 
+
+          # ----------------------------------------------------
+          # In danh sách repository ra log của GitHub Actions
+          # ----------------------------------------------------
           cat "$REPOS_FILE" |
             while IFS=$'\t' read -r repo fork archived disabled; do
+
+              # In tên repository.
               echo " - $repo"
+
             done
+
 
           echo "----------------------------------------"
           echo "Total repositories: $repo_count"
           echo ""
 
+
+          # ====================================================
+          # XỬ LÝ TỪNG REPOSITORY
+          # ====================================================
+
+          # Đọc từng dòng từ REPOS_FILE.
+          #
+          # Mỗi dòng gồm 4 field:
+          #
+          # repo
+          # fork
+          # archived
+          # disabled
+          #
+          # IFS=$'\t' nghĩa là sử dụng TAB làm delimiter.
           while IFS=$'\t' read -r repo fork archived disabled; do
 
-            # Skip forks
+
+            # --------------------------------------------------
+            # Bỏ qua repository là fork
+            # --------------------------------------------------
             if [ "$fork" = "true" ]; then
               echo "Skipping fork: $repo"
               continue
             fi
 
-            # Skip archived repositories
+
+            # --------------------------------------------------
+            # Bỏ qua repository đã archived
+            # --------------------------------------------------
             if [ "$archived" = "true" ]; then
               echo "Skipping archived repository: $repo"
               continue
             fi
 
-            # Skip disabled repositories
+
+            # --------------------------------------------------
+            # Bỏ qua repository đã disabled
+            # --------------------------------------------------
             if [ "$disabled" = "true" ]; then
               echo "Skipping disabled repository: $repo"
               continue
             fi
 
+
+            # --------------------------------------------------
+            # Bắt đầu lấy language statistics
+            # --------------------------------------------------
             echo "Scanning: $repo"
 
+
+            # --------------------------------------------------
+            # GitHub Languages API
+            # --------------------------------------------------
+            #
+            # API trả về dạng:
+            #
+            # {
+            #   "Python": 12345,
+            #   "Java": 6789,
+            #   "HTML": 1234
+            # }
+            #
+            # Các giá trị là số byte code mà GitHub
+            # xác định thuộc về từng ngôn ngữ.
             language_response=$(curl -fsSL \
               -H "Accept: application/vnd.github+json" \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "X-GitHub-Api-Version: 2026-03-10" \
               "https://api.github.com/repos/${repo}/languages")
-              
+
+
+            # --------------------------------------------------
+            # Chuyển JSON thành dạng TSV
+            # --------------------------------------------------
+            #
+            # Input:
+            #
+            # {
+            #   "Python": 10000,
+            #   "Java": 5000
+            # }
+            #
+            # Output:
+            #
+            # Python    10000
+            # Java      5000
+            #
+            # Kết quả được append vào LANGUAGES_FILE.
             echo "$language_response" |
               jq -r 'to_entries[] | [.key, .value] | @tsv' \
               >> "$LANGUAGES_FILE"
 
+
+          # Kết thúc vòng lặp repository
           done < "$REPOS_FILE"
+
+
+          # ====================================================
+          # AGGREGATE LANGUAGE STATISTICS
+          # ====================================================
 
           echo ""
           echo "Aggregating language statistics..."
 
+
+          # ----------------------------------------------------
+          # Gộp statistics của tất cả repository
+          # ----------------------------------------------------
+          #
+          # LANGUAGES_FILE hiện có thể chứa:
+          #
+          # Python    1000
+          # Java      500
+          # Python    3000
+          # HTML      200
+          # Java      700
+          #
+          # awk sẽ cộng các language giống nhau:
+          #
+          # Python = 4000
+          # Java   = 1200
+          # HTML   = 200
+          #
+          # Đồng thời tính:
+          #
+          # percentage = language_bytes / total_bytes * 100
           awk -F '\t' '
           {
+            # Cộng byte của từng language.
             language[$1] += $2
+
+            # Cộng tổng byte của tất cả language.
             total += $2
           }
+
           END {
+
+            # Duyệt qua toàn bộ language đã được aggregate.
             for (l in language) {
-              printf "%s\t%.0f\t%.10f\n", l, language[l], language[l] / total * 100
+
+              # Output:
+              #
+              # Language
+              # Total bytes
+              # Percentage
+              #
+              # %.0f:
+              #   Hiển thị tổng byte dưới dạng số nguyên.
+              #
+              # %.10f:
+              #   Tính percentage với độ chính xác cao.
+              printf "%s\t%.0f\t%.10f\n", \
+                l, \
+                language[l], \
+                language[l] / total * 100
             }
           }
           ' "$LANGUAGES_FILE" |
+
+            # --------------------------------------------------
+            # Sort theo tổng số byte giảm dần
+            # --------------------------------------------------
+            #
+            # -t $'\t':
+            #   TAB là delimiter.
+            #
+            # -k2,2nr:
+            #   Sort theo column thứ 2.
+            #   n  = numeric
+            #   r  = reverse
+            #
+            # Kết quả:
+            #
+            # Python
+            # Java
+            # TypeScript
+            # ...
+            #
+            # theo thứ tự byte giảm dần.
             sort -t $'\t' -k2,2nr > "$TOTAL_FILE"
 
+
+          # ====================================================
+          # GENERATE README CONTENT
+          # ====================================================
+
+          # Tạo file tạm chứa phần README mới.
           GENERATED_FILE="$(mktemp)"
 
+
+          # Ghi toàn bộ phần language statistics vào file tạm.
           {
+          
+          # ----------------------------------------------------
+          # START MARKER
+          # ----------------------------------------------------
+          #
+          # Marker dùng để Python xác định vị trí cần update
+          # trong README.md.
           echo "<!-- LANGUAGES:START -->"
           echo ""
-          echo "| Language | Usage | Language | Usage | Language | Usage | Language | Usage |"
-          echo "|---|---:|---|---:|---|---:|---|---:|"
-        
-            # Generate 4 language/usage pairs per row
-            awk -F '\t' '
-            {
-              language[NR] = $1
-              percentage[NR] = $3
-            }
-            END {
-              total = NR
-          
-              for (i = 1; i <= total; i += 4) {
-                printf "| "
-          
-                for (j = 0; j < 4; j++) {
-                  idx = i + j
-          
-                  if (idx <= total) {
-                    printf "`%s` | %.2f%% |", language[idx], percentage[idx]
-                  } else {
-                    printf " | |"
-                  }
-          
-                  if (j < 3) {
-                    printf " "
-                  }
-                }
-          
-                printf "\n"
-              }
-            }
-            ' "$TOTAL_FILE"
-          
-            echo ""
-            echo "_Automatically updated by GitHub Actions._"
-            echo ""
-            echo "<!-- LANGUAGES:END -->"
-          } > "$GENERATED_FILE"
 
-          python3 - "$GENERATED_FILE" <<'PY'
-          import pathlib
-          import sys
 
-          readme = pathlib.Path("README.md")
-          generated = pathlib.Path(sys.argv[1])
-
-          start_marker = "<!-- LANGUAGES:START -->"
-          end_marker = "<!-- LANGUAGES:END -->"
-
-          generated_text = generated.read_text()
-
-          if readme.exists():
-              content = readme.read_text()
-          else:
-              content = ""
-
-          start = content.find(start_marker)
-          end = content.find(end_marker)
-
-          if start != -1 and end != -1 and end >= start:
-              end += len(end_marker)
-
-              new_content = (
-                  content[:start]
-                  + generated_text
-                  + content[end:]
-              )
-          else:
-              section = (
-                  "\n\n## Languages\n\n"
-                  + generated_text
-                  + "\n"
-              )
-
-              new_content = content.rstrip() + section
-
-          readme.write_text(new_content)
-
-          print("README.md updated successfully.")
-          PY
-          
-          echo ""
-          echo "========================================"
-          echo " Final language statistics"
-          echo "========================================"
-
-          cat "$TOTAL_FILE"
-
-          echo ""
-          echo "Language statistics updated successfully."
-
-      - name: Commit and push changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add README.md
-
-          if git diff --cached --quiet; then
-            echo "README.md is already up to date."
-            exit 0
-          fi
-
-          git commit -m "chore: update language statistics"
-          git push
+          # ----------------------------------------------------
+          # Tạo header của Markdown table
+          # ----------------------------------------------------
+          #
+          # Có 4 cặp:
+          #
+          # Language | Usage
+          #
+```
